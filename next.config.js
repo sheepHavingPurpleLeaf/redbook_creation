@@ -4,9 +4,6 @@ const nextConfig = {
     swcMinify: true,
     images: {
         domains: ['localhost'],
-    },
-    api: {
-        bodyParser: false,
     }
 }
 
