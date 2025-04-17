@@ -354,3 +354,83 @@ redbook-content-generator/
 ## 大模型切换
 
 目前系统使用火山引擎上部署的大模型。如需切换到其他模型，请修改 `app/api/generate/route.ts` 文件中的 `generateContent` 函数，根据新模型的 API 要求调整请求参数和响应处理逻辑。 
+
+## 部署常见问题
+
+### 文件名编码问题
+
+在 Linux 系统上，如果遇到中文文件名编码错误（例如构建时出现 `Cannot convert argument to a ByteString because the character has a value greater than 255` 错误），请执行以下操作：
+
+1. 确保所有文件名使用英文命名，特别是 `public` 目录下的模板文件
+
+```bash
+# 重命名带有中文名称的文件
+cd public
+mv "xx品牌KOC达人brief表.xlsx" "brief_template.xlsx"
+
+# 记得同时更新代码中引用这些文件的地方
+```
+
+2. 修改相关代码，在 `app/api/download-template/route.ts` 和 `app/api/read-brief-excel/route.ts` 中更新文件路径引用
+
+3. 确保系统环境变量设置正确的语言和编码：
+
+```bash
+# 添加到 .bashrc 或 .zshrc
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+```
+
+### 临时文件和权限问题
+
+如果遇到文件权限或访问问题：
+
+1. 确保临时目录存在并有足够权限：
+
+```bash
+# 创建临时目录并设置权限
+mkdir -p /var/www/redbook-generator/tmp
+chmod 777 /var/www/redbook-generator/tmp
+```
+
+2. 确保 Node.js 进程有权限访问应用目录：
+
+```bash
+# 设置目录所有权
+sudo chown -R www-data:www-data /var/www/redbook-generator
+# 或者将当前用户添加到www-data组
+sudo usermod -a -G www-data $USER
+```
+
+### 构建过程中的内存问题
+
+如果在构建过程中遇到内存不足问题：
+
+```bash
+# 增加 Node.js 可用内存
+export NODE_OPTIONS="--max-old-space-size=4096"
+npm run build
+```
+
+### PM2 环境变量问题
+
+确保 PM2 能正确加载环境变量：
+
+```bash
+# 使用 ecosystem.config.js 设置环境变量
+module.exports = {
+  apps: [{
+    name: 'redbook-generator',
+    script: 'node_modules/next/dist/bin/next',
+    args: 'start',
+    env: {
+      NODE_ENV: 'production',
+      VOLCANO_ENGINE_API_URL: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+      VOLCANO_ENGINE_API_KEY: 'your-api-key',
+      VOLCANO_MODEL_ID: 'ep-20250302190857-bwfd8'
+    }
+  }]
+}
+```
+
+这样即使 `.env.local` 文件不可访问，应用也能正常运行。 

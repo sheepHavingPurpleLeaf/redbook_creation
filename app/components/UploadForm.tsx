@@ -42,8 +42,8 @@ export default function UploadForm({ onGenerateStart, onGenerateComplete, onErro
 
     const handleDownloadTemplate = () => {
         const link = document.createElement('a')
-        link.href = '/xx品牌KOC达人brief表.xlsx'
-        link.download = 'xx品牌KOC达人brief表.xlsx'
+        link.href = '/brief_template.xlsx'
+        link.download = 'brief_template.xlsx'
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)

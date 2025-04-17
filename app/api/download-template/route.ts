@@ -4,13 +4,13 @@ import path from 'path'
 
 export async function GET(req: NextRequest) {
     try {
-        const templatePath = path.join(process.cwd(), 'public', 'xx品牌KOC达人brief表.xlsx')
+        const templatePath = path.join(process.cwd(), 'public', 'brief_template.xlsx')
         const fileBuffer = await fs.readFile(templatePath)
 
         return new NextResponse(fileBuffer, {
             headers: {
                 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                'Content-Disposition': 'attachment; filename="xx品牌KOC达人brief表.xlsx"',
+                'Content-Disposition': 'attachment; filename="brief_template.xlsx"',
                 'Cache-Control': 'no-cache'
             }
         })

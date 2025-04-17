@@ -76,7 +76,7 @@ export async function GET(req: NextRequest) {
             }
 
             // 查找模板文件
-            const templatePath = path.join(publicDir, 'xx品牌KOC达人brief表.xlsx')
+            const templatePath = path.join(publicDir, 'brief_template.xlsx')
             try {
                 const templateStats = await fs.stat(templatePath)
                 publicDirInfo.templateExists = true
