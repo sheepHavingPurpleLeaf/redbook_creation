@@ -3,6 +3,8 @@ export interface ContentData {
     content: string;
     tags: string[];
     images: string[];
+    briefData?: Record<string, string>;
+    keyContents?: Record<string, string[]>;
 }
 
 export interface UploadFormProps {

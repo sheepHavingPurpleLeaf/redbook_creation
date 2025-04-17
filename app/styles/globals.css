@@ -2,12 +2,97 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
 :root {
-    --foreground-rgb: 0, 0, 0;
-    --background-rgb: 255, 255, 255;
+    --foreground-rgb: 13, 10, 41;
+    /* dark */
+    --background-rgb: 249, 250, 251;
+    /* gray-50 */
 }
 
-body {
-    color: rgb(var(--foreground-rgb));
-    background: rgb(var(--background-rgb));
+@layer base {
+    html {
+        font-family: 'Inter', system-ui, sans-serif;
+    }
+
+    body {
+        color: rgb(var(--foreground-rgb));
+        background: rgb(var(--background-rgb));
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+        @apply font-medium;
+    }
+}
+
+@layer components {
+    .card {
+        @apply bg-white rounded-xl shadow-card border border-gray-100 overflow-hidden transition-all duration-200 hover:shadow-lg;
+    }
+
+    .btn {
+        @apply px-4 py-2 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2;
+    }
+
+    .btn-primary {
+        @apply btn bg-primary text-white shadow-button hover:bg-primary-600 focus:ring-primary-300;
+    }
+
+    .btn-secondary {
+        @apply btn bg-secondary text-primary-500 border border-gray-200 hover:bg-secondary-dark;
+    }
+
+    .btn-ghost {
+        @apply btn text-gray-600 hover:bg-gray-100;
+    }
+
+    .input {
+        @apply w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-300 focus:border-primary-500 focus:outline-none transition-all duration-200;
+    }
+
+    .dropzone {
+        @apply border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-all duration-200;
+    }
+
+    .dropzone-idle {
+        @apply border-gray-300 hover:border-primary-500;
+    }
+
+    .dropzone-active {
+        @apply border-primary-300 bg-primary-50;
+    }
+
+    .bg-gradient-purple {
+        @apply bg-gradient-to-r from-purple-500 to-indigo-500;
+    }
+
+    .animate-shimmer {
+        @apply relative overflow-hidden;
+    }
+
+    .animate-shimmer::before {
+        @apply absolute inset-0;
+        content: '';
+        background: linear-gradient(90deg,
+                rgba(255, 255, 255, 0) 0%,
+                rgba(255, 255, 255, 0.6) 50%,
+                rgba(255, 255, 255, 0) 100%);
+        animation: shimmer 1.5s infinite;
+    }
+
+    @keyframes shimmer {
+        0% {
+            transform: translateX(-100%);
+        }
+
+        100% {
+            transform: translateX(100%);
+        }
+    }
 }

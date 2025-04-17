@@ -4,6 +4,7 @@ import path from 'path'
 import { Readable } from 'stream'
 import { writeFile } from 'fs/promises'
 import axios from 'axios'
+import * as xlsx from 'xlsx'
 
 // 火山引擎API配置
 const VOLCANO_ENGINE_API_URL = process.env.VOLCANO_ENGINE_API_URL || 'https://ark.cn-beijing.volces.com/api/v3/chat/completions'
@@ -12,8 +13,7 @@ const VOLCANO_MODEL_ID = process.env.VOLCANO_MODEL_ID || 'ep-20250302190857-bwfd
 
 // 创建临时文件夹用于保存上传的文件
 const getTempDirectory = () => {
-    const tempDir = path.join(process.cwd(), 'tmp')
-    return tempDir
+    return path.join(process.cwd(), 'tmp')
 }
 
 // 确保临时目录存在
@@ -22,15 +22,22 @@ const ensureTempDirectory = async () => {
     try {
         await fs.access(tempDir)
     } catch {
-        await fs.mkdir(tempDir, { recursive: true })
+        try {
+            await fs.mkdir(tempDir, { recursive: true })
+            // 确保目录有正确的权限
+            await fs.chmod(tempDir, 0o777)
+        } catch (error) {
+            console.error('创建临时目录失败:', error)
+            throw new Error(`无法创建临时目录: ${error}`)
+        }
     }
     return tempDir
 }
 
 // 处理multipart/form-data上传
 async function handleFormData(req: NextRequest) {
+    console.log('开始处理表单数据')
     const formData = await req.formData()
-    const tempDir = await ensureTempDirectory()
 
     // 处理brief文件
     const briefFile = formData.get('brief') as File
@@ -38,11 +45,184 @@ async function handleFormData(req: NextRequest) {
         throw new Error('没有提供商品介绍文档')
     }
 
-    const briefPath = path.join(tempDir, briefFile.name)
-    const briefArrayBuffer = await briefFile.arrayBuffer()
-    await writeFile(briefPath, Buffer.from(briefArrayBuffer))
+    console.log('收到brief文件:', briefFile.name, briefFile.type, briefFile.size, 'bytes')
+
+    // 检查文件类型
+    if (!briefFile.name.endsWith('.xlsx')) {
+        throw new Error('只支持Excel (.xlsx)格式的商品介绍文档')
+    }
+
+    // 读取Excel文件
+    let columnMappings: Record<string, string> = {}
+    let keyContents: Record<string, string[]> = {};  // 新增关键词内容映射
+    let briefContent = '品牌简介：\n\n'
+
+    try {
+        console.log('开始从内存读取Excel数据')
+        const arrayBuffer = await briefFile.arrayBuffer()
+        const buffer = Buffer.from(arrayBuffer)
+
+        // 使用xlsx从缓冲区读取数据
+        const workbook = xlsx.read(buffer, { type: 'buffer' })
+        console.log('工作表名称:', workbook.SheetNames)
+
+        if (workbook.SheetNames.length === 0) {
+            throw new Error('Excel文件中没有工作表')
+        }
+
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]]
+        console.log('正在解析Excel数据')
+
+        const rawRange = xlsx.utils.decode_range(worksheet['!ref'] || 'A1:A1')
+        console.log('表格范围:', worksheet['!ref'])
+
+        const jsonData = xlsx.utils.sheet_to_json(worksheet, { header: 'A' })
+        console.log('读取到', jsonData.length, '行数据')
+
+        // 定义要查找的关键词映射
+        const keywordMap: Record<string, string> = {
+            "品牌介绍": "brandIntro",
+            "产品名称": "productName",
+            "产品卖点": "productSellingPoints",
+            "核心卖点": "productSellingPoints", // 兼容"核心卖点"
+            "辅助卖点": "secondarySellingPoints", // 新增辅助卖点
+            "产品痛点切入": "productPainPoints"
+        };
+
+        // 记录所有的列键
+        const allKeys: string[] = [];
+        for (let i = 0; i < jsonData.length; i++) {
+            const row = jsonData[i] as Record<string, any>;
+            for (const key in row) {
+                if (!allKeys.includes(key)) {
+                    allKeys.push(key);
+                }
+            }
+        }
+        allKeys.sort(); // 确保列名按字母顺序排序
+        console.log('表格所有列:', allKeys);
+
+        // 查找包含关键词的单元格，并提取该行右侧的所有单元格内容
+        for (let i = 0; i < jsonData.length; i++) {
+            const row = jsonData[i] as Record<string, any>;
+            let foundKeyword = false;
+            let keyword = "";
+            let keyColumn = "";
+
+            // 首先查找是否有包含关键词的单元格
+            for (const key in row) {
+                const cellValue = String(row[key] || '');
+                for (const keywordText in keywordMap) {
+                    if (cellValue.includes(keywordText)) {
+                        foundKeyword = true;
+                        keyword = keywordText;
+                        keyColumn = key;
+                        console.log(`在第 ${i + 1} 行找到关键词 "${keywordText}" 在列 ${key}`);
+                        break;
+                    }
+                }
+
+                if (foundKeyword) break;
+            }
+
+            // 如果找到关键词，提取右侧的内容
+            if (foundKeyword && keyword && keyColumn) {
+                const mappedKey = keywordMap[keyword];
+                const rightContent: string[] = [];
+
+                // 获取当前行右侧的所有单元格内容
+                const colIndex = keyColumn.charCodeAt(0) - 'A'.charCodeAt(0);
+                for (let j = colIndex + 1; j < allKeys.length; j++) {
+                    const nextColKey = String.fromCharCode('A'.charCodeAt(0) + j);
+                    if (nextColKey in row) {
+                        const content = String(row[nextColKey] || '').trim();
+                        if (content) {
+                            rightContent.push(content);
+                        }
+                    }
+                }
+
+                if (rightContent.length > 0) {
+                    keyContents[mappedKey] = rightContent;
+                    console.log(`提取到 "${keyword}" 右侧内容:`, rightContent);
+
+                    // 同时将内容添加到briefContent
+                    briefContent += `${keyword}: ${rightContent.join(' ')}\n`;
+                }
+            }
+        }
+
+        // 构建列名与值的映射 (保留原来的逻辑为了兼容)
+        const specificColumns = ['品牌名称', '产品名称', '核心卖点 1', '核心卖点 2', '核心卖点 3', '目标用户', '价格']
+
+        // 查找列名所在的行和对应的值
+        let headerRow = -1
+
+        // 找到包含列名的行
+        for (let i = 0; i < jsonData.length; i++) {
+            const row = jsonData[i] as Record<string, any>
+            let foundHeader = false
+
+            for (const key in row) {
+                const cellValue = String(row[key] || '')
+                if (specificColumns.includes(cellValue)) {
+                    console.log(`在第 ${i + 1} 行找到列标题 "${cellValue}"`)
+                    foundHeader = true
+                    break
+                }
+            }
+
+            if (foundHeader) {
+                headerRow = i
+                break
+            }
+        }
+
+        console.log('表头行索引:', headerRow)
+
+        if (headerRow !== -1) {
+            const headerRowData = jsonData[headerRow] as Record<string, any>
+            const valueRowData = jsonData[headerRow + 1] as Record<string, any>
+
+            console.log('表头行数据:', headerRowData)
+            console.log('数据行:', valueRowData ? '找到' : '未找到')
+
+            // 建立列名与值的映射
+            for (const key in headerRowData) {
+                const columnName = String(headerRowData[key] || '')
+                if (specificColumns.includes(columnName) && valueRowData && key in valueRowData) {
+                    const value = String(valueRowData[key] || '')
+                    columnMappings[columnName] = value
+                    console.log(`匹配列: ${columnName} = ${value}`)
+                }
+            }
+        }
+
+        console.log('找到的列映射:', columnMappings)
+        console.log('找到的关键词内容:', keyContents)
+
+        // 如果没有找到关键词内容，且没有找到特定列，回退到原来的解析方法
+        if (Object.keys(keyContents).length === 0 && Object.keys(columnMappings).length === 0) {
+            console.log('未找到特定内容，使用备用方法')
+            if (jsonData.length > 0) {
+                const data = jsonData[0] as Record<string, any>
+
+                for (const key in data) {
+                    if (data[key]) {
+                        briefContent += `${key}: ${data[key]}\n`
+                    }
+                }
+            } else {
+                throw new Error('Excel文件中没有数据')
+            }
+        }
+    } catch (excelError) {
+        console.error('Excel解析错误:', excelError)
+        throw new Error(`Excel文件解析失败: ${excelError}`)
+    }
 
     // 处理产品图片
+    const tempDir = await ensureTempDirectory()
     const images: string[] = []
     const imageFiles: File[] = []
 
@@ -60,12 +240,7 @@ async function handleFormData(req: NextRequest) {
         }
     }
 
-    if (imageFiles.length === 0) {
-        throw new Error('没有提供产品图片')
-    }
-
-    // 读取brief文件内容
-    const briefContent = await fs.readFile(briefPath, 'utf-8')
+    console.log('收到', imageFiles.length, '张图片')
 
     // 读取小红书审核要求（假设存储在public目录下）
     let reviewRequirements = ''
@@ -81,13 +256,16 @@ async function handleFormData(req: NextRequest) {
         reviewRequirements,
         images,
         tempDir,
-        imageFiles
+        imageFiles,
+        columnMappings, // 返回特定列的映射数据
+        keyContents // 新增：返回关键词内容映射
     }
 }
 
 // 调用大模型API生成内容
 async function generateContent(briefContent: string, reviewRequirements: string) {
     try {
+        console.log('开始调用生成API')
         // 使用火山引擎的chat completions接口
         const response = await axios.post(VOLCANO_ENGINE_API_URL, {
             model: VOLCANO_MODEL_ID,
@@ -123,6 +301,7 @@ ${briefContent}
 
         // 解析模型返回的内容
         const generatedText = response.data.choices[0].message.content;
+        console.log('生成API响应成功')
 
         // 简单的内容解析，实际项目中可能需要更复杂的解析逻辑
         const titleMatch = generatedText.match(/标题[：:]\s*(.+)/);
@@ -154,19 +333,33 @@ ${briefContent}
 
 export async function POST(req: NextRequest) {
     try {
+        console.log('接收到POST请求到 /api/generate')
         // 处理表单数据
-        const { briefContent, reviewRequirements, images } = await handleFormData(req)
+        const { briefContent, reviewRequirements, images, columnMappings, keyContents } = await handleFormData(req)
 
         // 调用API生成内容
         const generatedContent = await generateContent(briefContent, reviewRequirements)
 
-        // 返回结果
-        return NextResponse.json({
+        // 准备返回数据
+        const responseData = {
             title: generatedContent.title,
             content: generatedContent.content,
             tags: generatedContent.tags,
-            images: images
+            images: images,
+            briefData: columnMappings, // 在响应中包含特定列的数据
+            keyContents: keyContents // 新增：返回关键词内容映射
+        }
+
+        console.log('生成成功，返回数据:', {
+            title: responseData.title,
+            contentLength: responseData.content.length,
+            tagsCount: responseData.tags.length,
+            imagesCount: responseData.images.length,
+            briefDataKeys: Object.keys(responseData.briefData || {})
         })
+
+        // 返回结果
+        return NextResponse.json(responseData)
     } catch (error: any) {
         console.error('生成文案时出错:', error)
         return NextResponse.json(
