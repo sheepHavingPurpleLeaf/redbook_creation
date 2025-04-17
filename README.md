@@ -66,14 +66,25 @@ yarn dev
 1. **安装 Node.js 和 npm**
 
 ```bash
+# 添加 NodeSource 仓库
 curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+
+# 安装 Node.js 和 npm
 sudo apt install -y nodejs
+
+# 验证安装
+node -v  # 应显示 v18.x.x
+npm -v   # 验证 npm 版本
 ```
 
 2. **安装 PM2**
 
 ```bash
+# 全局安装 PM2
 sudo npm install -g pm2
+
+# 验证安装
+pm2 --version
 ```
 
 3. **安装 Nginx**
@@ -81,51 +92,81 @@ sudo npm install -g pm2
 ```bash
 sudo apt update
 sudo apt install -y nginx
+
+# 启动 Nginx 并设置为开机自启
+sudo systemctl start nginx
+sudo systemctl enable nginx
+
+# 验证 Nginx 状态
+sudo systemctl status nginx
 ```
 
-4. **克隆代码仓库**
+4. **创建应用目录并克隆代码仓库**
 
 ```bash
-git clone <your-repository-url>
-cd <repository-directory>
+# 创建应用目录
+sudo mkdir -p /var/www/redbook-generator
+sudo chown -R $USER:$USER /var/www/redbook-generator
+
+# 克隆代码仓库
+git clone <your-repository-url> /var/www/redbook-generator
+cd /var/www/redbook-generator
 ```
 
 5. **安装项目依赖**
 
 ```bash
-npm install
+# 安装依赖
+npm install --production
+
+# 如果遇到权限问题，可以使用
+# sudo npm install --production --unsafe-perm
 ```
 
-6. **创建环境变量文件**
+6. **配置环境变量**
 
 ```bash
+# 创建环境变量文件
 cat > .env.local << EOF
-VOLCANO_ENGINE_API_URL=https://your-llm-api-url.com
+VOLCANO_ENGINE_API_URL=https://ark.cn-beijing.volces.com/api/v3/chat/completions
 VOLCANO_ENGINE_API_KEY=your-api-key
+VOLCANO_MODEL_ID=ep-20250302190857-bwfd8
 EOF
+
+# 设置适当的权限
+chmod 600 .env.local
 ```
 
-7. **构建项目**
+7. **创建临时文件夹并设置权限**
 
 ```bash
+# 创建临时文件夹
+mkdir -p tmp
+chmod 777 tmp
+```
+
+8. **构建项目**
+
+```bash
+# 构建生产版本
 npm run build
 ```
 
-8. **配置 PM2**
-
-创建 `ecosystem.config.js` 文件：
+9. **配置 PM2**
 
 ```bash
+# 创建 PM2 配置文件
 cat > ecosystem.config.js << EOF
 module.exports = {
   apps: [
     {
-      name: 'redbook-content-generator',
+      name: 'redbook-generator',
       script: 'node_modules/next/dist/bin/next',
       args: 'start',
       instances: 'max',
       exec_mode: 'cluster',
       watch: false,
+      max_memory_restart: '500M',
       env: {
         PORT: 3000,
         NODE_ENV: 'production',
@@ -134,20 +175,19 @@ module.exports = {
   ],
 };
 EOF
-```
 
-启动应用：
-
-```bash
+# 启动应用
 pm2 start ecosystem.config.js
+
+# 查看应用状态
+pm2 status
 ```
 
-9. **配置 Nginx**
-
-创建 Nginx 配置文件：
+10. **配置 Nginx**
 
 ```bash
-sudo nano /etc/nginx/sites-available/redbook-content-generator
+# 创建 Nginx 配置文件
+sudo nano /etc/nginx/sites-available/redbook-generator
 ```
 
 添加以下内容：
@@ -157,32 +197,123 @@ server {
     listen 80;
     server_name yourdomain.com;  # 替换为你的域名或服务器IP
 
+    access_log /var/log/nginx/redbook-generator-access.log;
+    error_log /var/log/nginx/redbook-generator-error.log;
+
     location / {
         proxy_pass http://localhost:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
     }
 
     # 增加对上传文件的支持
-    client_max_body_size 10M;
+    client_max_body_size 20M;
+    
+    # 设置缓存规则（可选）
+    location ~* \.(jpg|jpeg|png|gif|ico|css|js)$ {
+        expires 30d;
+        add_header Cache-Control "public, no-transform";
+    }
 }
 ```
 
 启用站点并重启 Nginx：
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/redbook-content-generator /etc/nginx/sites-enabled/
+# 创建配置软连接
+sudo ln -s /etc/nginx/sites-available/redbook-generator /etc/nginx/sites-enabled/
+
+# 检查 Nginx 配置
 sudo nginx -t
+
+# 重启 Nginx
 sudo systemctl restart nginx
 ```
 
-10. **设置自启动**
+11. **设置 PM2 自启动**
 
 ```bash
-pm2 startup
+# 生成自启动脚本
+pm2 startup ubuntu
+
+# 保存当前进程列表
+pm2 save
+```
+
+12. **配置防火墙（可选）**
+
+```bash
+# 安装 UFW
+sudo apt install -y ufw
+
+# 允许 SSH、HTTP 和 HTTPS 连接
+sudo ufw allow ssh
+sudo ufw allow http
+sudo ufw allow https
+
+# 启用防火墙
+sudo ufw enable
+
+# 检查状态
+sudo ufw status
+```
+
+13. **设置 HTTPS（可选，推荐）**
+
+使用 Let's Encrypt 安装免费的 SSL 证书：
+
+```bash
+# 安装 Certbot
+sudo apt install -y certbot python3-certbot-nginx
+
+# 获取并安装证书
+sudo certbot --nginx -d yourdomain.com
+
+# 证书会自动更新，可以测试自动更新流程
+sudo certbot renew --dry-run
+```
+
+14. **监控和日志**
+
+```bash
+# 查看应用日志
+pm2 logs redbook-generator
+
+# 监控应用
+pm2 monit
+
+# 查看 Nginx 访问日志
+sudo tail -f /var/log/nginx/redbook-generator-access.log
+
+# 查看 Nginx 错误日志
+sudo tail -f /var/log/nginx/redbook-generator-error.log
+```
+
+15. **应用更新流程**
+
+```bash
+# 进入应用目录
+cd /var/www/redbook-generator
+
+# 拉取最新代码
+git pull
+
+# 安装依赖（如有变更）
+npm install --production
+
+# 构建应用
+npm run build
+
+# 重启应用
+pm2 restart redbook-generator
+
+# 保存 PM2 进程列表
 pm2 save
 ```
 
