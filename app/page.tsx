@@ -4,21 +4,77 @@ import { useState } from 'react'
 import UploadForm from './components/UploadForm'
 import ContentPreview from './components/ContentPreview'
 import { ContentData } from './utils/types'
+import axios from 'axios'
 
 export default function Home() {
     const [generatedContent, setGeneratedContent] = useState<ContentData | null>(null)
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [currentBriefFile, setCurrentBriefFile] = useState<File | null>(null)
+    const [currentImages, setCurrentImages] = useState<File[]>([])
 
-    const handleContentGeneration = (content: ContentData) => {
+    const handleContentGeneration = (content: ContentData, briefFile?: File, images?: File[]) => {
         setGeneratedContent(content)
         setIsLoading(false)
         setError(null)
+
+        // 保存当前的brief文件和图片，以便重新生成时使用
+        if (briefFile) {
+            console.log('保存brief文件用于重新生成:', briefFile.name, briefFile.size, 'bytes')
+            setCurrentBriefFile(briefFile)
+        } else {
+            console.log('警告: 没有接收到brief文件')
+        }
+
+        if (images && images.length > 0) {
+            console.log('保存图片用于重新生成:', images.length, '张')
+            setCurrentImages(images)
+        }
     }
 
     const handleError = (errorMessage: string) => {
         setError(errorMessage)
         setIsLoading(false)
+    }
+
+    const handleRegenerate = async (feedback: string) => {
+        if (!generatedContent) return
+        if (!currentBriefFile) {
+            handleError('无法找到之前上传的商品介绍文档，请重新上传')
+            return
+        }
+
+        setIsLoading(true)
+        setError(null)
+
+        try {
+            // 创建一个新的FormData
+            const formData = new FormData()
+
+            // 使用之前上传的brief文件和图片
+            formData.append('brief', currentBriefFile)
+
+            currentImages.forEach((image, index) => {
+                formData.append(`image_${index}`, image)
+            })
+
+            // 发送请求，将修改意见作为URL参数传递
+            const response = await axios.post(`/api/generate?regenerate=true&feedback=${encodeURIComponent(feedback)}`, formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data'
+                }
+            })
+
+            handleContentGeneration(response.data)
+        } catch (error) {
+            console.error('重新生成文案错误:', error)
+            let errorMessage = '重新生成文案时出错'
+            if (axios.isAxiosError(error) && error.response) {
+                console.error('错误详情:', error.response.data)
+                errorMessage = error.response.data.message || errorMessage
+            }
+            handleError(errorMessage)
+        }
     }
 
     return (
@@ -46,7 +102,7 @@ export default function Home() {
                     <div className="p-6">
                         <UploadForm
                             onGenerateStart={() => setIsLoading(true)}
-                            onGenerateComplete={handleContentGeneration}
+                            onGenerateComplete={(content, briefFile, images) => handleContentGeneration(content, briefFile, images)}
                             onError={handleError}
                         />
                     </div>
@@ -90,7 +146,10 @@ export default function Home() {
                         </h2>
                     </div>
                     <div className="p-6">
-                        <ContentPreview content={generatedContent} />
+                        <ContentPreview
+                            content={generatedContent}
+                            onRegenerate={handleRegenerate}
+                        />
                     </div>
                 </section>
             )}

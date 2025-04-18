@@ -1,9 +1,12 @@
 'use client'
 
+import { useState } from 'react'
 import { ContentPreviewProps } from '../utils/types'
 
-export default function ContentPreview({ content }: ContentPreviewProps) {
+export default function ContentPreview({ content, onRegenerate }: ContentPreviewProps) {
     const { title, content: bodyText, tags, images, briefData, keyContents } = content
+    const [feedback, setFeedback] = useState('')
+    const [isSubmitting, setIsSubmitting] = useState(false)
 
     // 从briefData中提取核心卖点
     const corePoints = briefData ?
@@ -89,6 +92,25 @@ export default function ContentPreview({ content }: ContentPreviewProps) {
             })
     }
 
+    const handleRegenerate = () => {
+        if (!feedback.trim()) {
+            alert('请输入修改意见')
+            return
+        }
+
+        if (onRegenerate) {
+            setIsSubmitting(true)
+            try {
+                onRegenerate(feedback)
+            } catch (error) {
+                console.error('重新生成失败:', error)
+                alert('重新生成失败，请稍后再试')
+            } finally {
+                setIsSubmitting(false)
+            }
+        }
+    }
+
     return (
         <div className="space-y-6">
             {corePoints.length > 0 && (
@@ -160,6 +182,52 @@ export default function ContentPreview({ content }: ContentPreviewProps) {
                     </div>
                 )}
             </div>
+
+            {onRegenerate && (
+                <div className="card overflow-hidden">
+                    <div className="bg-gradient-to-r from-amber-50 to-amber-100 px-6 py-4 border-b border-amber-200">
+                        <h3 className="text-lg font-medium text-amber-700 flex items-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                            修改意见
+                        </h3>
+                    </div>
+                    <div className="p-6 bg-white">
+                        <div className="space-y-4">
+                            <p className="text-gray-600 text-sm">对生成的内容不满意？请输入您的修改意见，我们将为您重新生成。</p>
+                            <textarea
+                                className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 min-h-[120px]"
+                                placeholder="例如：希望文案更吸引年轻人、更加突出产品的性价比、增加更多关于产品功效的描述等"
+                                value={feedback}
+                                onChange={(e) => setFeedback(e.target.value)}
+                            />
+                            <button
+                                onClick={handleRegenerate}
+                                disabled={isSubmitting || !feedback.trim()}
+                                className="btn-primary py-3 px-6 flex items-center justify-center"
+                            >
+                                {isSubmitting ? (
+                                    <>
+                                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        生成中...
+                                    </>
+                                ) : (
+                                    <>
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                        </svg>
+                                        根据意见重新生成
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4">
                 <button

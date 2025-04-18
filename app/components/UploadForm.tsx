@@ -87,7 +87,7 @@ export default function UploadForm({ onGenerateStart, onGenerateComplete, onErro
         setGenerating(true)
         setDebugInfo(null)
         onGenerateStart()
-        console.log('开始生成文案，发送请求...')
+        console.log('开始生成文案，发送请求...', briefFile.name)
 
         try {
             const formData = new FormData()
@@ -107,7 +107,7 @@ export default function UploadForm({ onGenerateStart, onGenerateComplete, onErro
             })
 
             console.log('收到响应:', response.data)
-            onGenerateComplete(response.data)
+            onGenerateComplete(response.data, briefFile, images)
         } catch (error) {
             console.error('生成文案错误:', error)
             let errorMessage = '生成文案时出错'

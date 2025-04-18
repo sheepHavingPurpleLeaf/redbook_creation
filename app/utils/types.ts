@@ -9,12 +9,13 @@ export interface ContentData {
 
 export interface UploadFormProps {
     onGenerateStart: () => void;
-    onGenerateComplete: (content: ContentData) => void;
+    onGenerateComplete: (content: ContentData, briefFile?: File, images?: File[]) => void;
     onError: (error: string) => void;
 }
 
 export interface ContentPreviewProps {
     content: ContentData;
+    onRegenerate?: (feedback: string, briefFile?: File, images?: File[]) => void;
 }
 
 export interface ImageUploadProps {

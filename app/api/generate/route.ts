@@ -39,10 +39,26 @@ async function handleFormData(req: NextRequest) {
     console.log('开始处理表单数据')
     const formData = await req.formData()
 
+    // 打印所有表单键值，帮助调试
+    console.log('表单键值:')
+    for (const [key, value] of formData.entries()) {
+        if (value instanceof File) {
+            console.log(`- ${key}: File(${value.name}, ${value.type}, ${value.size} bytes)`)
+        } else {
+            console.log(`- ${key}: ${value}`)
+        }
+    }
+
     // 处理brief文件
     const briefFile = formData.get('brief') as File
     if (!briefFile) {
+        console.error('表单中没有brief文件字段')
         throw new Error('没有提供商品介绍文档')
+    }
+
+    if (!(briefFile instanceof File)) {
+        console.error(`brief不是File对象: ${typeof briefFile}`, briefFile)
+        throw new Error('提供的商品介绍文档无效')
     }
 
     console.log('收到brief文件:', briefFile.name, briefFile.type, briefFile.size, 'bytes')
@@ -263,9 +279,27 @@ async function handleFormData(req: NextRequest) {
 }
 
 // 调用大模型API生成内容
-async function generateContent(briefContent: string, reviewRequirements: string) {
+async function generateContent(briefContent: string, reviewRequirements: string, feedback?: string) {
     try {
         console.log('开始调用生成API')
+
+        // 准备用户消息内容
+        let userMessage = `我需要你帮我根据以下商品信息生成一篇小红书风格的产品推广帖子：
+
+商品信息：
+${briefContent}
+
+请按照以下格式生成内容：
+1. 标题：（有吸引力的标题，不超过20字）
+2. 正文：（详细的正文内容，500-800字左右，包含个人体验和感受）
+3. 标签：（5-8个相关话题标签，每个标签以#开头）`
+
+        // 如果有修改意见，添加到用户消息中
+        if (feedback && feedback.trim()) {
+            userMessage += `\n\n请注意以下修改意见：
+${feedback}`
+        }
+
         // 使用火山引擎的chat completions接口
         const response = await axios.post(VOLCANO_ENGINE_API_URL, {
             model: VOLCANO_MODEL_ID,
@@ -278,15 +312,7 @@ ${reviewRequirements}`
                 },
                 {
                     role: "user",
-                    content: `我需要你帮我根据以下商品信息生成一篇小红书风格的产品推广帖子：
-
-商品信息：
-${briefContent}
-
-请按照以下格式生成内容：
-1. 标题：（有吸引力的标题，不超过20字）
-2. 正文：（详细的正文内容，500-800字左右，包含个人体验和感受）
-3. 标签：（5-8个相关话题标签，每个标签以#开头）`
+                    content: userMessage
                 }
             ],
             temperature: 0.7,
@@ -334,11 +360,54 @@ ${briefContent}
 export async function POST(req: NextRequest) {
     try {
         console.log('接收到POST请求到 /api/generate')
+
+        // 检查是否是修改请求
+        const url = new URL(req.url)
+        const isRegenerate = url.searchParams.get('regenerate') === 'true'
+        console.log('是否是重新生成请求:', isRegenerate)
+
+        if (isRegenerate) {
+            const feedback = url.searchParams.get('feedback') || ''
+            console.log('修改意见:', feedback)
+
+            // 打印请求头信息
+            console.log('请求头:')
+            const headers: Record<string, string> = {}
+            req.headers.forEach((value, key) => {
+                headers[key] = value
+                console.log(`- ${key}: ${value}`)
+            })
+        }
+
         // 处理表单数据
+        console.log('开始处理表单数据...')
         const { briefContent, reviewRequirements, images, columnMappings, keyContents } = await handleFormData(req)
+        console.log('表单数据处理完成')
+
+        // 获取修改意见（如果有）
+        let feedback = ''
+        if (isRegenerate) {
+            const contentType = req.headers.get('content-type') || ''
+
+            if (contentType.includes('application/json')) {
+                try {
+                    const jsonData = await req.json()
+                    feedback = jsonData.feedback || ''
+                    console.log('从JSON正文获取修改意见:', feedback)
+                } catch (error) {
+                    console.error('解析修改意见失败:', error)
+                }
+            } else {
+                // 从URL参数中获取修改意见
+                feedback = url.searchParams.get('feedback') || ''
+                console.log('从URL参数获取修改意见:', feedback)
+            }
+        }
 
         // 调用API生成内容
-        const generatedContent = await generateContent(briefContent, reviewRequirements)
+        console.log('开始调用大模型API生成内容...')
+        const generatedContent = await generateContent(briefContent, reviewRequirements, feedback)
+        console.log('内容生成完成')
 
         // 准备返回数据
         const responseData = {
@@ -355,7 +424,8 @@ export async function POST(req: NextRequest) {
             contentLength: responseData.content.length,
             tagsCount: responseData.tags.length,
             imagesCount: responseData.images.length,
-            briefDataKeys: Object.keys(responseData.briefData || {})
+            briefDataKeys: Object.keys(responseData.briefData || {}),
+            hasKeyContents: Object.keys(responseData.keyContents || {}).length > 0
         })
 
         // 返回结果
